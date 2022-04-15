@@ -1,0 +1,1 @@
+static code analyze for React Hooks
