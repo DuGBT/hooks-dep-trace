@@ -1,0 +1,25 @@
+{
+  "name": "hooks-call-stack",
+  "version": "1.0.0",
+  "description": "static code analyze for React Hooks",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DuGBT/hooks-call-stack.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/DuGBT/hooks-call-stack/issues"
+  },
+  "homepage": "https://github.com/DuGBT/hooks-call-stack#readme",
+  "dependencies": {
+    "@babel/parser": "^7.17.9"
+  }
+}
