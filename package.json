@@ -2,11 +2,10 @@
   "name": "hooks-call-stack",
   "version": "1.0.0",
   "description": "static code analyze for React Hooks",
-  "main": "index.js",
-  "type": "module",
+  "main": "src/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "start": "node src/index.js"
   },
   "repository": {
     "type": "git",
@@ -20,6 +19,7 @@
   },
   "homepage": "https://github.com/DuGBT/hooks-call-stack#readme",
   "dependencies": {
-    "@babel/parser": "^7.17.9"
+    "espree": "^9.3.1",
+    "esquery": "^1.4.0"
   }
 }
