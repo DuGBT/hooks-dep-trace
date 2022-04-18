@@ -2,7 +2,7 @@ import fs from "fs";
 import * as espree from "espree";
 import esquery from "esquery";
 const fileContent = fs
-    .readFileSync("../_source_code/numberInputEditor.js")
+    .readFileSync("../_source_code/multiFacts.js")
     .toString();
 
 const parseOption = {
@@ -15,13 +15,6 @@ const parseOption = {
     },
 };
 
-const stateHooks = [];
-const effectHooks = [];
-const functionMap = {};
-const setStateCallMap = {};
-const dependencyMap = [];
-const effectFunctionMap = {};
-const effectSelector = esquery.parse(`[callee.name=/^set/]`);
 const callExpressionSelector = esquery.parse(`[type=CallExpression]`);
 
 function getComponentDeclaration(Node) {
@@ -51,7 +44,6 @@ function addFunctionToMap(name, body, map) {
         map[name] = body;
     }
 }
-
 function getAllFunctionDeclarations(Node, functionMap) {
     let functionName, functionBody;
     if (Node.type === "FunctionDeclaration") {
@@ -59,7 +51,7 @@ function getAllFunctionDeclarations(Node, functionMap) {
         functionBody = Node.body;
     } else if (
         Node.type === "VariableDeclaration" &&
-        Node.declarations[0].init.type === "ArrowFunctionExpression"
+        Node.declarations[0]?.init?.type === "ArrowFunctionExpression"
     ) {
         functionName = Node.declarations[0].id.name;
         functionBody = Node.declarations[0].init.body;
@@ -84,8 +76,7 @@ function addEffectAndDependency(effectNodes, dependenceNodes) {
     const effectList = effectNodes.map((Node) => Node.callee.name);
 }
 
-function findSetStateCallInRecursion(Node, effectList) {
-    const effectNodes = esquery.match(Node, effectSelector);
+function findSetStateCallInRecursion(functionMap, Node, effectList) {
     const callNodes = esquery.match(Node, callExpressionSelector);
 
     const callExpressionList = [
@@ -103,23 +94,29 @@ function findSetStateCallInRecursion(Node, effectList) {
         if (!functionMap[name]) {
             return;
         }
-        findSetStateCallInRecursion(functionMap[name], effectList);
+        findSetStateCallInRecursion(functionMap, functionMap[name], effectList);
     });
 }
 
-function findAllSetStateCall() {
+function findAllSetStateCall(functionMap, effectHooks) {
     effectHooks.forEach((Node) => {
         const effectList = new Set();
-        const dependenceNodes = Node.expression.arguments[1].elements;
-
-        const dependenceStates = dependenceNodes.map((Node) => {
-            if (Node.type === "MemberExpression") {
-                return parseMemberExpression(Node);
-            }
-            return Node.name;
-        });
-        const functionNodeInEffect = Node.expression.arguments[0];
-        findSetStateCallInRecursion(functionNodeInEffect, effectList);
+        const hooksArguments = Node.expression.arguments;
+        let dependenceStates;
+        if (hooksArguments.length === 2)
+            dependenceStates = hooksArguments[1].elements.map((Node) => {
+                if (Node.type === "MemberExpression") {
+                    return parseMemberExpression(Node);
+                }
+                return Node.name;
+            });
+        else dependenceStates = undefined;
+        const functionNodeInEffect = hooksArguments[0];
+        findSetStateCallInRecursion(
+            functionMap,
+            functionNodeInEffect,
+            effectList
+        );
         console.log(dependenceStates, [...effectList]);
     });
 }
@@ -127,8 +124,8 @@ function findAllSetStateCall() {
 function useStateFilter(Node) {
     return (
         Node.type === "VariableDeclaration" &&
-        Node.declarations[0].init.type === "CallExpression" &&
-        Node.declarations[0].init.callee.name === "useState"
+        Node.declarations[0].init?.type === "CallExpression" &&
+        Node.declarations[0].init?.callee?.name === "useState"
     );
 }
 
@@ -136,7 +133,7 @@ function getUseStateDeclarations(Node) {
     const { elements } = Node.declarations[0].id;
     return [elements[0].name, elements[1].name];
 }
-function findEffectInFunction(name, Node) {
+function findEffectInFunction(name, Node, effectFunctionMap) {
     const Nodes = esquery.match(Node, callExpressionSelector);
     const callExpressionList = Nodes.flatMap((Node) => {
         if (!Node.callee.name) {
@@ -155,13 +152,13 @@ function findEffectInFunction(name, Node) {
     });
 }
 
-function findEffectInFunctionMap() {
+function findEffectInFunctionMap(functionMap, effectFunctionMap) {
     Object.entries(functionMap).forEach(([name, Node]) => {
-        findEffectInFunction(name, Node);
+        findEffectInFunction(name, Node, effectFunctionMap);
     });
 }
 
-const topLevelFunctionBody = espree
+const topLevelFunctionBodys = espree
     .parse(fileContent, parseOption)
     .body.filter(
         (node) =>
@@ -169,36 +166,35 @@ const topLevelFunctionBody = espree
             node.type === "FunctionDeclaration"
     )
     .map(getComponentDeclaration);
+topLevelFunctionBodys.forEach((topLevelFunction) => {
+    if (!topLevelFunction) return;
+    const functionMap = {};
+    const stateHooks = [];
+    const effectHooks = [];
+    const effectFunctionMap = {};
+    const setStateCallMap = {};
 
-// console.log(topLevelFunctionBody);
-const ast = espree
-    .parse(fileContent, parseOption)
-    .body.filter(
-        (node) =>
-            node.type === "VariableDeclaration" ||
-            node.type === "FunctionDeclaration"
-    )[2];
+    topLevelFunction.forEach((Node) => {
+        getAllFunctionDeclarations(Node, functionMap);
+    });
 
-const testBody = ast.body.body;
+    Object.keys(functionMap).forEach((functionName) => {
+        setStateCallMap[functionName] = {};
+    });
+    const useStateDeclarationAst = topLevelFunction.filter(useStateFilter);
+    const useEffectdeclarationAst = topLevelFunction.filter(useEffectFilter);
+    const useStateDeclarations = useStateDeclarationAst.map(
+        getUseStateDeclarations
+    );
 
-testBody.forEach((Node) => {
-    getAllFunctionDeclarations(Node, functionMap);
+    for (const declaration of useStateDeclarations) {
+        stateHooks.push(declaration);
+    }
+    for (const declaration of useEffectdeclarationAst) {
+        effectHooks.push(declaration);
+    }
+    findAllSetStateCall(functionMap, effectHooks);
+    findEffectInFunctionMap(functionMap, effectFunctionMap);
+    console.log("------------");
 });
-Object.keys(functionMap).forEach((functionName) => {
-    setStateCallMap[functionName] = {};
-});
-const useStateDeclarationAst = testBody.filter(useStateFilter);
-const useEffectdeclarationAst = testBody.filter(useEffectFilter);
-const useStateDeclarations = useStateDeclarationAst.map(
-    getUseStateDeclarations
-);
-
-for (const declaration of useStateDeclarations) {
-    stateHooks.push(declaration);
-}
-for (const declaration of useEffectdeclarationAst) {
-    effectHooks.push(declaration);
-}
-findAllSetStateCall();
-findEffectInFunctionMap();
-//todo 依赖中解析成员变量并 圈复杂度提示 effect自动转箭头函数配置 effect hooks递归检查 useCallback返回函数检查
+//todo 圈复杂度提示 effect自动转箭头函数配置 useCallback返回函数检查 forwardRef转发组件检查 setTimeout和setInterval排除
