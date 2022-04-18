@@ -4,6 +4,7 @@ import esquery from "esquery";
 const fileContent = fs
     .readFileSync("../_source_code/numberInputEditor.js")
     .toString();
+
 const parseOption = {
     sourceType: "module",
     ecmaVersion: 2022,
@@ -22,6 +23,17 @@ const dependencyMap = [];
 const effectFunctionMap = {};
 const effectSelector = esquery.parse(`[callee.name=/^set/]`);
 const callExpressionSelector = esquery.parse(`[type=CallExpression]`);
+
+function getComponentDeclaration(Node) {
+    if (Node.type === "FunctionDeclaration") {
+        return Node.body.body;
+    }
+    if (Node.type === "VariableDeclaration") {
+        const initNode = Node.declarations[0].init;
+        if (initNode.type === "ArrowFunctionExpression")
+            return initNode.body.body;
+    }
+}
 
 function useEffectFilter(Node) {
     return (
@@ -57,6 +69,13 @@ function getAllFunctionDeclarations(Node, functionMap) {
     }
 }
 
+function parseMemberExpression(Node) {
+    if (Node.type !== "MemberExpression") {
+        return Node.name;
+    }
+    return parseMemberExpression(Node.object) + "." + Node.property.name;
+}
+
 function addEffectAndDependency(effectNodes, dependenceNodes) {
     if (!effectNodes.length || !dependenceNodes.length) {
         return;
@@ -65,11 +84,43 @@ function addEffectAndDependency(effectNodes, dependenceNodes) {
     const effectList = effectNodes.map((Node) => Node.callee.name);
 }
 
-function findSetStateCall() {
+function findSetStateCallInRecursion(Node, effectList) {
+    const effectNodes = esquery.match(Node, effectSelector);
+    const callNodes = esquery.match(Node, callExpressionSelector);
+
+    const callExpressionList = [
+        ...new Set(
+            callNodes.map((Node) => {
+                return Node.callee.name || Node.callee.property.name;
+            })
+        ),
+    ];
+
+    callExpressionList.forEach((name) => {
+        if (name.startsWith("set")) {
+            effectList.add(name);
+        }
+        if (!functionMap[name]) {
+            return;
+        }
+        findSetStateCallInRecursion(functionMap[name], effectList);
+    });
+}
+
+function findAllSetStateCall() {
     effectHooks.forEach((Node) => {
+        const effectList = new Set();
         const dependenceNodes = Node.expression.arguments[1].elements;
-        const Nodes = esquery.match(Node, effectSelector);
-        addEffectAndDependency(Nodes, dependenceNodes);
+
+        const dependenceStates = dependenceNodes.map((Node) => {
+            if (Node.type === "MemberExpression") {
+                return parseMemberExpression(Node);
+            }
+            return Node.name;
+        });
+        const functionNodeInEffect = Node.expression.arguments[0];
+        findSetStateCallInRecursion(functionNodeInEffect, effectList);
+        console.log(dependenceStates, [...effectList]);
     });
 }
 
@@ -85,38 +136,41 @@ function getUseStateDeclarations(Node) {
     const { elements } = Node.declarations[0].id;
     return [elements[0].name, elements[1].name];
 }
-
-function findEffectInRecursion(name, Node) {
+function findEffectInFunction(name, Node) {
     const Nodes = esquery.match(Node, callExpressionSelector);
     const callExpressionList = Nodes.flatMap((Node) => {
         if (!Node.callee.name) {
             return [];
         } else return [Node.callee.name];
     });
-    console.log(callExpressionList);
     if (!callExpressionList.length) {
         return;
     }
     callExpressionList.forEach((functionName) => {
         if (functionName.startsWith("set")) {
-            console.log(name, functionName);
             if (!effectFunctionMap[name]) {
                 effectFunctionMap[name] = [functionName];
-            } 
-            else effectFunctionMap[name].push(functionName);
-        }
-        if (!functionMap[functionName]) {
-            return;
+            } else effectFunctionMap[name].push(functionName);
         }
     });
 }
 
-function findEffectInFunction() {
+function findEffectInFunctionMap() {
     Object.entries(functionMap).forEach(([name, Node]) => {
-        findEffectInRecursion(name, Node);
+        findEffectInFunction(name, Node);
     });
 }
 
+const topLevelFunctionBody = espree
+    .parse(fileContent, parseOption)
+    .body.filter(
+        (node) =>
+            node.type === "VariableDeclaration" ||
+            node.type === "FunctionDeclaration"
+    )
+    .map(getComponentDeclaration);
+
+// console.log(topLevelFunctionBody);
 const ast = espree
     .parse(fileContent, parseOption)
     .body.filter(
@@ -124,6 +178,7 @@ const ast = espree
             node.type === "VariableDeclaration" ||
             node.type === "FunctionDeclaration"
     )[2];
+
 const testBody = ast.body.body;
 
 testBody.forEach((Node) => {
@@ -144,6 +199,6 @@ for (const declaration of useStateDeclarations) {
 for (const declaration of useEffectdeclarationAst) {
     effectHooks.push(declaration);
 }
-findSetStateCall();
-findEffectInFunction();
-//todo 圈复杂度提示 effect自动转箭头函数配置 effect hooks递归检查
+findAllSetStateCall();
+findEffectInFunctionMap();
+//todo 依赖中解析成员变量并 圈复杂度提示 effect自动转箭头函数配置 effect hooks递归检查 useCallback返回函数检查
