@@ -1,7 +1,14 @@
 const fs = require("fs");
 const espree = require("espree");
 const esquery = require("esquery");
+const tsParser = require("@typescript-eslint/typescript-estree");
 
+const callExpressionSelector = esquery.parse(`[type=CallExpression]`);
+
+const config = {
+    jsx: true,
+    sourseType: "module",
+};
 const parseOption = {
     sourceType: "module",
     ecmaVersion: 2022,
@@ -12,15 +19,17 @@ const parseOption = {
     },
 };
 
-const callExpressionSelector = esquery.parse(`[type=CallExpression]`);
-
 function isReactComponent(statement) {
-    const returnStatementSelector = esquery.parse('[type="ReturnStatement"]');
-    const JSXSelector = esquery.parse('[type="JSXElement"]');
-    const returnStatements = esquery.match(statement, returnStatementSelector);
-    return returnStatements.some((statement) => {
-        return esquery.match(statement, JSXSelector).length > 0;
-    });
+    let name;
+    if (statement.type === "VariableDeclaration") {
+        name = statement.declarations[0].id.name;
+    } else if (
+        statement.type === "ExportDefaultDeclaration" &&
+        statement.declaration.type === "FunctionDeclaration"
+    ) {
+        name = statement.declaration.id.name;
+    } else name = statement.id.name;
+    return name[0] === name[0].toUpperCase();
 }
 
 function getComponentDeclaration(Node) {
@@ -59,6 +68,7 @@ function addFunctionToMap(name, body, map) {
         map[name] = body;
     }
 }
+
 function findUseCallBackBlockStatement(Node) {
     const selector = esquery.parse("[type='BlockStatement']");
     const blockStatements = esquery.match(Node, selector);
@@ -96,14 +106,6 @@ function parseMemberExpression(Node) {
     return parseMemberExpression(Node.object) + "." + Node.property.name;
 }
 
-function addEffectAndDependency(effectNodes, dependenceNodes) {
-    if (!effectNodes.length || !dependenceNodes.length) {
-        return;
-    }
-    const dependenceStateList = dependenceNodes.map((Node) => Node.name);
-    const effectList = effectNodes.map((Node) => Node.callee.name);
-}
-
 function findSetStateCallInRecursion(functionMap, Node, effectList) {
     const callNodes = esquery.match(Node, callExpressionSelector);
 
@@ -116,7 +118,11 @@ function findSetStateCallInRecursion(functionMap, Node, effectList) {
     ];
 
     callExpressionList.forEach((name) => {
-        if (name.startsWith("set")) {
+        if (
+            name.startsWith("set") &&
+            name !== "setTimeout" &&
+            name !== "setInterval"
+        ) {
             effectList.add(name);
         }
         if (!functionMap[name]) {
@@ -174,7 +180,7 @@ function getComponentName(Node) {
 
 function getUseStateDeclarations(Node) {
     const { elements } = Node.declarations[0].id;
-    return [elements[0].name, elements[1].name];
+    return elements[1]?.name;
 }
 function findEffectInFunction(name, Node, effectFunctionMap) {
     const Nodes = esquery.match(Node, callExpressionSelector);
@@ -201,24 +207,28 @@ function findEffectInFunctionMap(functionMap, effectFunctionMap) {
     });
 }
 
+function getCodeAst(filePath) {
+    const code = fs.readFileSync(filePath).toString();
+    if (filePath.indexOf(".js") !== -1) return espree.parse(code, parseOption);
+    return tsParser.parse(code, config);
+}
+
 module.exports = function (options) {
     const { filePath } = options;
-    const fileContent = fs.readFileSync(filePath).toString();
-    const topLevelFunctions = espree
-        .parse(fileContent, parseOption)
-        .body.filter(
-            (node) =>
-                node.type === "VariableDeclaration" ||
-                node.type === "FunctionDeclaration" ||
-                node.type === "ExportDefaultDeclaration"
-        );
+    const ast = getCodeAst(filePath);
+    const topLevelFunctions = ast.body.filter(
+        (node) =>
+            node.type === "VariableDeclaration" ||
+            node.type === "FunctionDeclaration" ||
+            node.type === "ExportDefaultDeclaration"
+    );
+
     topLevelFunctions.forEach((Node) => {
         const topLevelFunction = getComponentDeclaration(Node);
-        const componentNane = getComponentName(Node);
         if (!topLevelFunction) return;
+
+        const componentNane = getComponentName(Node);
         const functionMap = {};
-        const stateHooks = [];
-        const effectHooks = [];
         const effectFunctionMap = {};
         const setStateCallMap = {};
 
@@ -229,24 +239,12 @@ module.exports = function (options) {
         Object.keys(functionMap).forEach((functionName) => {
             setStateCallMap[functionName] = {};
         });
-        const useStateDeclarationAst = topLevelFunction.filter(useStateFilter);
-        const useEffectdeclarationAst =
-            topLevelFunction.filter(useEffectFilter);
-        const useStateDeclarations = useStateDeclarationAst.map(
-            getUseStateDeclarations
-        );
-
-        for (const declaration of useStateDeclarations) {
-            stateHooks.push(declaration);
-        }
-        for (const declaration of useEffectdeclarationAst) {
-            effectHooks.push(declaration);
-        }
+        const useEffectdeclarations = topLevelFunction.filter(useEffectFilter);
         const isComponent = isReactComponent(Node);
         if (isComponent) console.log("---", componentNane, "----");
-        findAllSetStateCall(functionMap, effectHooks);
+        findAllSetStateCall(functionMap, useEffectdeclarations);
         findEffectInFunctionMap(functionMap, effectFunctionMap);
     });
-    //todo 圈复杂度提示 effect自动转箭头函数配置 setTimeout和setInterval排除
-    //todo 格式化输出结果（控制台和json文件保存）
+    // todo effect自动转箭头函数配置 setTimeout和setInterval排除 识别setStateHooks？
+    // todo 格式化输出结果（控制台和json文件保存）错误处理
 };
