@@ -1,4 +1,5 @@
-const fs = require("fs");
+const fs = require("fs/promises");
+const path = require("path");
 const espree = require("espree");
 const esquery = require("esquery");
 const tsParser = require("@typescript-eslint/typescript-estree");
@@ -38,10 +39,10 @@ function getComponentDeclaration(Node) {
     }
     if (Node.type === "VariableDeclaration") {
         const initNode = Node.declarations[0].init;
-        if (initNode.type === "ArrowFunctionExpression")
+        if (initNode?.type === "ArrowFunctionExpression")
             return initNode.body.body;
-        if (initNode.type === "CallExpression") {
-            return initNode.arguments[0].body.body;
+        if (initNode?.type === "CallExpression") {
+            return initNode.arguments[0]?.body?.body;
         }
     }
     if (Node.type === "ExportDefaultDeclaration") {
@@ -132,7 +133,7 @@ function findSetStateCallInRecursion(functionMap, Node, effectList) {
     });
 }
 
-function findAllSetStateCall(functionMap, effectHooks) {
+function findAllSetStateCall(functionMap, effectHooks, result) {
     effectHooks.forEach((Node) => {
         const effectList = new Set();
         const hooksArguments = Node.expression.arguments;
@@ -151,18 +152,9 @@ function findAllSetStateCall(functionMap, effectHooks) {
             functionNodeInEffect,
             effectList
         );
-        console.log(dependenceStates, [...effectList]);
+        result.set(dependenceStates, [...effectList]);
     });
 }
-
-function useStateFilter(Node) {
-    return (
-        Node.type === "VariableDeclaration" &&
-        Node.declarations[0].init?.type === "CallExpression" &&
-        Node.declarations[0].init?.callee?.name === "useState"
-    );
-}
-
 function getComponentName(Node) {
     if (Node.type === "VariableDeclaration") {
         return Node.declarations[0].id.name;
@@ -178,73 +170,74 @@ function getComponentName(Node) {
     }
 }
 
-function getUseStateDeclarations(Node) {
-    const { elements } = Node.declarations[0].id;
-    return elements[1]?.name;
-}
-function findEffectInFunction(name, Node, effectFunctionMap) {
-    const Nodes = esquery.match(Node, callExpressionSelector);
-    const callExpressionList = Nodes.flatMap((Node) => {
-        if (!Node.callee.name) {
-            return [];
-        } else return [Node.callee.name];
-    });
-    if (!callExpressionList.length) {
-        return;
-    }
-    callExpressionList.forEach((functionName) => {
-        if (functionName.startsWith("set")) {
-            if (!effectFunctionMap[name]) {
-                effectFunctionMap[name] = [functionName];
-            } else effectFunctionMap[name].push(functionName);
-        }
-    });
-}
-
-function findEffectInFunctionMap(functionMap, effectFunctionMap) {
-    Object.entries(functionMap).forEach(([name, Node]) => {
-        findEffectInFunction(name, Node, effectFunctionMap);
-    });
-}
-
-function getCodeAst(filePath) {
-    const code = fs.readFileSync(filePath).toString();
+async function getCodeAst(filePath) {
+    const code = (await fs.readFile(filePath)).toString();
     if (filePath.indexOf(".js") !== -1) return espree.parse(code, parseOption);
     return tsParser.parse(code, config);
 }
 
-module.exports = function (options) {
-    const { filePath } = options;
-    const ast = getCodeAst(filePath);
+module.exports = async function (options) {
+    const { filePath, save } = options;
+    const ast = await getCodeAst(filePath);
     const topLevelFunctions = ast.body.filter(
         (node) =>
             node.type === "VariableDeclaration" ||
             node.type === "FunctionDeclaration" ||
             node.type === "ExportDefaultDeclaration"
     );
+    const hooksResult = {};
+    try {
+        topLevelFunctions.forEach((Node) => {
+            const topLevelFunction = getComponentDeclaration(Node);
+            if (!topLevelFunction) return;
 
-    topLevelFunctions.forEach((Node) => {
-        const topLevelFunction = getComponentDeclaration(Node);
-        if (!topLevelFunction) return;
+            const componentName = getComponentName(Node);
+            const functionMap = {};
+            const setStateCallMap = {};
+            const effectCallMap = new Map();
 
-        const componentNane = getComponentName(Node);
-        const functionMap = {};
-        const effectFunctionMap = {};
-        const setStateCallMap = {};
+            Array.from(topLevelFunction).forEach((Node) => {
+                getAllFunctionDeclarations(Node, functionMap);
+            });
 
-        topLevelFunction.forEach((Node) => {
-            getAllFunctionDeclarations(Node, functionMap);
+            Object.keys(functionMap).forEach((functionName) => {
+                setStateCallMap[functionName] = {};
+            });
+            const useEffectdeclarations =
+                topLevelFunction.filter(useEffectFilter);
+            const isComponent = isReactComponent(Node);
+            findAllSetStateCall(
+                functionMap,
+                useEffectdeclarations,
+                effectCallMap
+            );
+            const effectMap = Array.from(effectCallMap.entries()).reduce(
+                (effectJSONObject, current, currentIndex) => {
+                    const [dependencies, effectCall] = current;
+                    const effectIndex = "effect" + (currentIndex + 1);
+                    effectJSONObject[effectIndex] = {
+                        dependencies,
+                        effectCall,
+                    };
+                    return effectJSONObject;
+                },
+                {}
+            );
+            if (isComponent) hooksResult[componentName] = effectMap;
+            if (!save) console.log(effectMap, hooksResult);
         });
-
-        Object.keys(functionMap).forEach((functionName) => {
-            setStateCallMap[functionName] = {};
-        });
-        const useEffectdeclarations = topLevelFunction.filter(useEffectFilter);
-        const isComponent = isReactComponent(Node);
-        if (isComponent) console.log("---", componentNane, "----");
-        findAllSetStateCall(functionMap, useEffectdeclarations);
-        findEffectInFunctionMap(functionMap, effectFunctionMap);
-    });
-    // todo effect自动转箭头函数配置 setTimeout和setInterval排除 识别setStateHooks？
+        if (save) {
+            const targetPath = path.join(
+                path.dirname(filePath),
+                path.basename(filePath) + "-hooks-trace-result.json"
+            );
+            await fs.rm(targetPath).catch(() => {});
+            await fs.appendFile(targetPath, JSON.stringify(hooksResult));
+            console.log("save result in " + targetPath + " success");
+        } else console.log("handle " + filePath, "success");
+    } catch (error) {
+        console.log("handle " + filePath + " error:", error);
+    }
     // todo 格式化输出结果（控制台和json文件保存）错误处理
+    // todo 支持检查自定义Hooks？
 };
