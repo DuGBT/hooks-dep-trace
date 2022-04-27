@@ -238,6 +238,5 @@ module.exports = async function (options) {
     } catch (error) {
         console.log("handle " + filePath + " error:", error);
     }
-    // todo 格式化输出结果（控制台和json文件保存）错误处理
     // todo 支持检查自定义Hooks？
 };
