@@ -1,28 +1,29 @@
 {
-  "name": "hooks-call-stack",
+  "name": "hooks-dep-trace",
   "version": "1.0.0",
   "description": "static code analyze for React Hooks",
   "main": "src/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node bin/bin.js",
-    "debug": "node test.js"
+    "debug": "node _test/test.js"
   },
   "bin": {
-    "hooks-call-stack": "bin/bin.js"
+    "hooks-dep-trace": "bin/bin.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DuGBT/hooks-call-stack.git"
+    "url": "git+https://github.com/DuGBT/hooks-dep-trace.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/DuGBT/hooks-call-stack/issues"
+    "url": "https://github.com/DuGBT/hooks-dep-trace/issues"
   },
-  "homepage": "https://github.com/DuGBT/hooks-call-stack#readme",
+  "homepage": "https://github.com/DuGBT/hooks-dep-trace#readme",
   "dependencies": {
+    "@typescript-eslint/typescript-estree": "^5.21.0",
     "commander": "^9.2.0",
     "espree": "^9.3.1",
     "esquery": "^1.4.0"

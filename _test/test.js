@@ -1,7 +1,7 @@
 const path = require("path");
 const fsPromise = require("fs/promises");
-const hooksTrace = require("./src/index");
-const basename = "";
+const hooksTrace = require("../src/index");
+const basename = "/Users/dugbt/Workspace/hospitalrun-frontend/src";
 
 function isJsxOrTsxfile(dir) {
     return /((\.js)|(\.jsx)|(\.ts)|(\.tsx))$/.test(dir);
