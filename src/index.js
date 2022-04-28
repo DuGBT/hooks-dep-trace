@@ -243,9 +243,7 @@ module.exports = {
     getComponentDeclaration,
     getComponentName,
     getAllFunctionDeclarations,
+    getCodeAst,
     useEffectFilter,
     findAllSetStateCall,
-    findSetStateCallInRecursion,
-    findUseCallBackBlockStatement,
-    parseMemberExpression,
 };
