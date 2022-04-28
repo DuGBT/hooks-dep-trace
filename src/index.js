@@ -224,7 +224,7 @@ module.exports = async function (options) {
                 {}
             );
             if (isComponent) hooksResult[componentName] = effectMap;
-            if (!save) console.log(effectMap, hooksResult);
+            if (!save) console.log(effectMap);
         });
         if (save) {
             const targetPath = path.join(
