@@ -193,16 +193,12 @@ module.exports = async function (options) {
 
             const componentName = getComponentName(Node);
             const functionMap = {};
-            const setStateCallMap = {};
             const effectCallMap = new Map();
 
             Array.from(topLevelFunction).forEach((Node) => {
                 getAllFunctionDeclarations(Node, functionMap);
             });
 
-            Object.keys(functionMap).forEach((functionName) => {
-                setStateCallMap[functionName] = {};
-            });
             const useEffectdeclarations =
                 topLevelFunction.filter(useEffectFilter);
             const isComponent = isReactComponent(Node);
