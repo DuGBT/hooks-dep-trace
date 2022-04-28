@@ -1,6 +1,6 @@
 {
   "name": "hooks-dep-trace",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "static code analyze for React Hooks",
   "main": "src/index.js",
   "scripts": {

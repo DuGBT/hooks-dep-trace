@@ -175,8 +175,7 @@ async function getCodeAst(filePath) {
     if (filePath.indexOf(".js") !== -1) return espree.parse(code, parseOption);
     return tsParser.parse(code, config);
 }
-
-module.exports = async function (options) {
+async function main(options) {
     const { filePath, save } = options;
     const ast = await getCodeAst(filePath);
     const topLevelFunctions = ast.body.filter(
@@ -220,7 +219,8 @@ module.exports = async function (options) {
                 {}
             );
             if (isComponent) hooksResult[componentName] = effectMap;
-            if (!save) console.log(effectMap);
+            if (!save && Object.keys(effectMap).length > 0)
+                console.log(effectMap);
         });
         if (save) {
             const targetPath = path.join(
@@ -235,4 +235,17 @@ module.exports = async function (options) {
         console.log("handle " + filePath + " error:", error);
     }
     // todo 支持检查自定义Hooks？
+}
+module.exports = {
+    main,
+    addFunctionToMap,
+    isReactComponent,
+    getComponentDeclaration,
+    getComponentName,
+    getAllFunctionDeclarations,
+    useEffectFilter,
+    findAllSetStateCall,
+    findSetStateCallInRecursion,
+    findUseCallBackBlockStatement,
+    parseMemberExpression,
 };
